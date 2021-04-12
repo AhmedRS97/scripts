@@ -11,6 +11,10 @@ exit_abnormal() {
   exit 1
 }
 
+exit_with_error() {
+  echo "$1"
+  exit 1
+}
 
 while getopts :s:t: option
 do
@@ -28,17 +32,51 @@ do
   esac
 done
 
-[ -z $src -o -z $dst ] &&
-	echo "The source or target arguments are empty."; exit_abnormal
-[ ! -d $src -o ! -d $dst ] &&
-	echo "The source or target doesn't exist or isn't a directory."; exit 1;
-[ ! -r $src -o ! -r $dst ] &&
-	echo "The source or target directory isn't readable."; exit 1;
-[ ! -w $src -o ! -w $dst ] &&
-	echo "The source or target directory isn't writable."; exit 1;
-[ ! -x $src -o ! -x $dst ] &&
-	echo "The source or target directory isn't exeutable."; exit 1;
 
-cp -r $src/* $dst &&
-	echo "Done, the files have benn copied to the target directory." ||
-	echo "Please check if there's files in the source directory";
+[ -d $src -o -d $dst ] ||
+  exit_with_error "The source or target doesn't exist or isn't a directory."
+[ -r $src -o -r $dst ] ||
+  exit_with_error "The source or target directory isn't readable."
+[ -w $src -o -w $dst ] ||
+  exit_with_error "The source or target directory isn't writable."
+[ -x $src -o -x $dst ] ||
+  exit_with_error "The source or target directory isn't exeutable."
+$(test $(find $src -maxdepth 1 | tail -n +2 | wc -l) -eq 0) &&
+  exit_with_error "The source directory's content is empty!"
+
+src=$(readlink -f "$src")
+dst=$(readlink -f "$dst")
+
+# Since the `cp -Rs` require to delete or rename any existing directory
+# in order to create a symlink, the script will do a 2 step process,
+# First is to get directories under source (depth=1) and look in the
+# target for those directories, if not found then create a symlink to it.
+# Second step is to create (recursively) symlinks to all files under
+# target, except of course the already made symlinks in step 1.
+
+# for each name of sub-directories under src directory.
+# create symlink to src sub-directory in dst where there's
+# no existing said sub-directory.
+for d in $(tree -dni -L 1 --noreport "$src" | tail -n +2);
+do
+  dir="$dst/$d"
+  # create symbolic links to directories existing in src but not in dst
+  # existing directory level1
+
+  #test2/level1  (1    +   1 )    *  (1      *     0)
+  # non existing directory or a file or a link.
+  #test2/level11 (1    +   1 )    *  (1      *     1)
+  $(test -L $dir -o ! -e $dir -a ! -d $dir -a ! -f $dir);
+  case $? in
+    0)
+      cd "$dst"; ln -sf "$src/$d" "$d";
+      echo "Created $src/$d symlink in $dst directory.";
+      ;;
+    1)
+      echo "Failed to create symlink for $src/$d in $dst directory.";
+      ;;
+  esac
+done
+
+cp -Rsvb $src/* $dst
+
