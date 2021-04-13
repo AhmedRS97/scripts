@@ -10,6 +10,7 @@ usage() {
   echo "The script also renames files and directories to filename~bak when linking.";
   echo "	Usage: $0 -s SOURCE -t TARGET | -u -t TARGET" 1>&2
 }
+
 exit_abnormal() {
   usage
   exit 1
@@ -33,14 +34,30 @@ validate_dir() {
     exit_with_error "$1 is empty!"
 }
 
+get_path_part() {
+  str=$1
+  delimiter=$2
+  s=$str$delimiter
+  array=();
+  while [[ $s ]]; do
+    array+=( "${s%%"$delimiter"*}" );
+    s=${s#*"$delimiter"};
+  done;
+  echo ${array[1]}
+}
+
 link() {
-  local src=$(readlink -f "$1")
-  local dst=$(readlink -f "$2")
-  for d in $(tree -ni -L 1 --noreport "$src" | tail -n +2);
+  local source=$(readlink -f "$1")
+  local destination=$(readlink -f "$2")
+  for fPath in $(find "$source" -type f,l);
   do
-    linkPath="$dst/$d"
-    [ -e $linkPath ] && mv "$linkPath" "$linkPath~bak";
-    $(cd "$dst" && ln -sf "$linkPath" $d)
+    pathPart=$(get_path_part $fPath $source)
+    linkPath="$destination$pathPart"
+    linkPathDir=$(dirname $linkPath)
+    filename=$(basename $pathPart)
+    [ -e $linkPath -a ! -L $linkPath ] && mv "$linkPath" "$linkPath~bak";
+    [ ! -e $linkPathDir ] && mkdir -p $linkPathDir
+    $(cd "$linkPathDir" && ln -sf "$linkPath" $filename)
   done
 }
 
@@ -48,13 +65,14 @@ unlink() {
   local destination=$(readlink -f $1)
 
   # TODO: unlink only the links created by this script.
-  # not other links that was already there in dst
+  # not other links that was already there in destination
   # before running this script.
-  find "$destination" -maxdepth 1 -type l -exec unlink {} \;
+  find "$destination" -type l -exec unlink {} \;
 
-  for fd in $(ls -1 $destination);
+  for fPath in $(find $destination -type f);
   do 
-    echo $fd | grep -qP "~bak$" && mv "$destination/$fd" "$destination/$(echo ${fd:0:${#fd}-4})"
+    echo $fPath | grep -qP "~bak$" &&
+	    mv "$fPath" "$(echo ${fPath:0:${#fPath}-4})"
   done
 }
 
@@ -62,9 +80,9 @@ while getopts :s:t:u option
 do
   case "${option}"
     in
-      s) src=${OPTARG}
+      s) source=${OPTARG}
 	 ;;
-      t) dst=${OPTARG}
+      t) destination=${OPTARG}
 	 ;;
       u) unLnk=1
          ;;
@@ -77,12 +95,12 @@ do
 done
 
 
-if [ -z "$src" -a ! -z "$dst" -a ! -z "$unLnk" ]; then
-  validate_dir $dst
-  unlink $dst && echo "restored backup and unlinked files and directories."
+if [ -z "$source" -a ! -z "$destination" -a ! -z "$unLnk" ]; then
+  validate_dir $destination
+  unlink $destination && echo "restored backup and unlinked files and directories."
 fi
-if [ ! -z "$src" -a ! -z "$dst" -a -z "$unLnk" ]; then
-  validate_dir $src
-  validate_dir $dst
-  link $src $dst && echo "made backup and linked source files and directories to target"
+if [ ! -z "$source" -a ! -z "$destination" -a -z "$unLnk" ]; then
+  validate_dir $source
+  validate_dir $destination
+  link $source $destination && echo "made backup and linked source files and directories to target"
 fi
