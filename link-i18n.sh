@@ -6,8 +6,9 @@
 #set -e
 
 usage() {
-  echo "This script link and unlink files in source directory to target directory.";
-  echo "The script also renames files and directories to filename~bak when linking.";
+  echo "This script can link and unlink files in source directory to target directory";
+  echo "that has the same structure."
+  echo "The script also renames existing files and directories to filename~bak before linking.";
   echo "	Usage: $0 -s SOURCE -t TARGET | -u -t TARGET" 1>&2
 }
 
@@ -58,6 +59,7 @@ link() {
     [ -e $linkPath -a ! -L $linkPath ] && mv "$linkPath" "$linkPath~bak";
     [ ! -e $linkPathDir ] && mkdir -p $linkPathDir
     $(cd "$linkPathDir" && ln -sf "$linkPath" $filename)
+    echo "linked $linkPath"
   done
 }
 
